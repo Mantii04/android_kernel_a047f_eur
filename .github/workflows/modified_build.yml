@@ -29,12 +29,20 @@ jobs:
         sed -i 's/if (oom_killer_disabled)/if (true)/g' mm/oom_kill.c
         
         # 2. Disable VM Pressure Reporting in mm/vmpressure.c
-        # We replace the return line in vmpressure_calc_level
         sed -i 's/return vmpressure_level(pressure);/return VMPRESSURE_LOW;/g' mm/vmpressure.c
         
         # 3. Disable HPA Killer in mm/hpa.c
-        # Insert return -ESRCH; at the beginning of hpa_killer function
-        sed -i '/static int hpa_killer(void)/!b;n;i\\treturn -ESRCH;' mm/hpa.c
+        # We insert 'return -ESRCH;' inside the function body after the first brace
+        sed -i '/static int hpa_killer(void)/,/^{/ s/^{/{\n\treturn -ESRCH;/' mm/hpa.c
+
+    - name: Verify Modifications
+      run: |
+        echo "--- Verifying mm/oom_kill.c ---"
+        grep -C 2 "if (true)" mm/oom_kill.c || echo "OOM Killer modification NOT found!"
+        echo "--- Verifying mm/vmpressure.c ---"
+        grep -C 2 "return VMPRESSURE_LOW;" mm/vmpressure.c || echo "VMPressure modification NOT found!"
+        echo "--- Verifying mm/hpa.c ---"
+        grep -A 5 "static int hpa_killer(void)" mm/hpa.c || echo "HPA Killer modification NOT found!"
 
     - name: Set environment variable
       run: |
