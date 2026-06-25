@@ -1,0 +1,11 @@
+--- a/mm/vmpressure.c
++++ b/mm/vmpressure.c
+@@ -149,7 +149,7 @@
+ 		pr_debug("%s: %3lu  (s: %lu  r: %lu)\n", __func__, pressure,
+ 			 scanned, reclaimed);
+ 
+-		return vmpressure_level(pressure);
++		return VMPRESSURE_LOW; /* Always report low pressure to effectively disable LMKD */
+ 	}
+ 
+ 	struct vmpressure_event {
