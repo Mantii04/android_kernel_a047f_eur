@@ -23,11 +23,9 @@ jobs:
         sudo apt update -y  
         sudo apt install libncurses5-dev -y
 
-    - name: Apply Background Kill Disable Patches
+    - name: Apply Background Kill Disable Patch
       run: |
-        git apply oom_kill_disable.patch
-        git apply vmpressure_disable.patch
-        git apply hpa_killer_disable.patch
+        git apply disable_bg_kill.patch
 
     - name: Set environment variable
       run: |
