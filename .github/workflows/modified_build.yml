@@ -1,1 +1,47 @@
+name: Modified Kernel Compilation
+
+on:
+  workflow_dispatch:
+    inputs:      
+      tag:
+        description: 'Release Tag'
+        required: true    
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+        submodules: true
+
+    - name: Set up build environment
+      run: |
+        sudo apt update -y  
+        sudo apt install libncurses5-dev -y
+
+    - name: Apply Background Kill Disable Patches
+      run: |
+        git apply oom_kill_disable.patch
+        git apply vmpressure_disable.patch
+        git apply hpa_killer_disable.patch
+
+    - name: Set environment variable
+      run: |
+        echo "BUILD_KERNEL_VERSION=${{ github.event.inputs.tag }}" >> $GITHUB_ENV        
+
+    - name: Compile Kernel
+      run: |
+        # Disable interactive menuconfig in build.sh
+        sed -i 's/make ${ARGS} menuconfig/# make ${ARGS} menuconfig/g' build.sh
+        bash build.sh
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Modified-Kernel-SM-A047F-${{ github.event.inputs.tag }}
+        path: build/*.tar
 
