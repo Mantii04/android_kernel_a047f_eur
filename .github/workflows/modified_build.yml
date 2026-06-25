@@ -44,4 +44,3 @@ jobs:
       with:
         name: Modified-Kernel-SM-A047F-${{ github.event.inputs.tag }}
         path: build/*.tar
-
