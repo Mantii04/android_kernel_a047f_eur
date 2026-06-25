@@ -23,9 +23,18 @@ jobs:
         sudo apt update -y  
         sudo apt install libncurses5-dev -y
 
-    - name: Apply Background Kill Disable Patch
+    - name: Apply Background Kill Disable Modifications
       run: |
-        git apply disable_bg_kill.patch
+        # 1. Disable OOM Killer in mm/oom_kill.c
+        sed -i 's/if (oom_killer_disabled)/if (true)/g' mm/oom_kill.c
+        
+        # 2. Disable VM Pressure Reporting in mm/vmpressure.c
+        # We replace the return line in vmpressure_calc_level
+        sed -i 's/return vmpressure_level(pressure);/return VMPRESSURE_LOW;/g' mm/vmpressure.c
+        
+        # 3. Disable HPA Killer in mm/hpa.c
+        # Insert return -ESRCH; at the beginning of hpa_killer function
+        sed -i '/static int hpa_killer(void)/!b;n;i\\treturn -ESRCH;' mm/hpa.c
 
     - name: Set environment variable
       run: |
