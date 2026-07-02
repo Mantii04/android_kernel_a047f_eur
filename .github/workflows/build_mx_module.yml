@@ -1,4 +1,4 @@
-name: MX Kernel Module (Fast Build)
+name: MX Kernel Module Build (Stable)
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
 
     steps:
       # -----------------------------
-      # Checkout kernel (FULL HISTORY for submodules)
+      # Checkout kernel source
       # -----------------------------
       - name: Checkout Kernel
         uses: actions/checkout@v4
@@ -23,7 +23,7 @@ jobs:
           submodules: recursive
 
       # -----------------------------
-      # Checkout module
+      # Checkout MX module
       # -----------------------------
       - name: Checkout MX Module
         uses: actions/checkout@v4
@@ -33,17 +33,7 @@ jobs:
           path: mx_module
 
       # -----------------------------
-      # CACHE TOOLCHAIN (BIG SPEED BOOST)
-      # -----------------------------
-      - name: Cache toolchain
-        uses: actions/cache@v4
-        with:
-          path: |
-            toolchain
-          key: toolchain-${{ runner.os }}
-
-      # -----------------------------
-      # Install dependencies (MINIMIZED)
+      # Install dependencies
       # -----------------------------
       - name: Install dependencies
         run: |
@@ -54,46 +44,65 @@ jobs:
             openssl pahole python3 rsync unzip xz-utils zip zlib1g-dev
 
       # -----------------------------
-      # Build kernel (FAST PATH)
+      # Build kernel (IMPORTANT)
       # -----------------------------
-      - name: Build kernel via build.sh
+      - name: Build Kernel
         run: |
           chmod +x build.sh
           export BUILD_KERNEL_VERSION=${{ github.event.inputs.tag }}
-
-          # prevent reinstall every run if your script supports it
-          touch .requirements || true
-
           bash build.sh
 
       # -----------------------------
-      # Export kernel paths
+      # Force clean Kbuild environment
       # -----------------------------
-      - name: Set paths
+      - name: Set kernel paths
         run: |
           echo "KDIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
           echo "OUT=$GITHUB_WORKSPACE/out" >> $GITHUB_ENV
 
       # -----------------------------
-      # BUILD MODULE (FIXED + FAST)
+      # Patch MX module (REMOVE WUWA)
       # -----------------------------
-      - name: Build MX module
+      - name: Fix MX module to Kbuild
         run: |
-          make -C mx_module \
-            KDIR=$KDIR \
-            O=$OUT \
-            -j$(nproc) \
+          sed -i '/WUWA/d' mx_module/Makefile || true
+
+          cat > mx_module/Makefile << 'EOF'
+obj-m += mx.o
+
+KDIR ?= /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+modules:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+EOF
+
+      # -----------------------------
+      # Build MX module
+      # -----------------------------
+      - name: Build MX Module
+        run: |
+          make -C kernel \
+            M=$GITHUB_WORKSPACE/mx_module \
+            O=$GITHUB_WORKSPACE/out \
             modules
 
       # -----------------------------
-      # Package ONLY required outputs
+      # Collect .ko files
       # -----------------------------
       - name: Package module
         run: |
           mkdir -p output
           find mx_module -name "*.ko" -exec cp {} output/ \;
 
-          zip -r mx_kernel_module.zip output
+          cd output
+          zip -r ../mx_kernel_module.zip .
 
       # -----------------------------
       # Upload artifact
