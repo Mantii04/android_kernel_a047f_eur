@@ -4,75 +4,131 @@ on:
   workflow_dispatch:
     inputs:
       kernel_branch:
-        description: 'Kernel source branch'
+        description: Kernel source branch
         required: true
-        default: 'sus'
+        default: sus
+
       mx_repo_owner_repo:
-        description: 'MX repository (owner/repo format, e.g., fuqiuluo/android-wuwa)'
+        description: MX repository (owner/repo)
         required: true
-        default: 'fuqiuluo/android-wuwa'
+        default: fuqiuluo/android-wuwa
+
       mx_branch:
-        description: 'MX repository branch'
+        description: MX repository branch
         required: true
-        default: 'master'
+        default: master
+
       defconfig_name:
-        description: 'Kernel defconfig name (e.g., exynos850-a04sxx_defconfig)'
+        description: Kernel defconfig
         required: true
-        default: 'exynos850-a04sxx_defconfig'
+        default: exynos850-a04sxx_defconfig
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Kernel Source
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ github.repository }}
-        ref: ${{ github.event.inputs.kernel_branch }}
-        path: kernel
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.kernel_branch }}
+          path: kernel
+          fetch-depth: 0
+          submodules: recursive
 
-    - name: Checkout MX Module Source
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ github.event.inputs.mx_repo_owner_repo }}
-        ref: ${{ github.event.inputs.mx_branch }}
-        path: mx_module
+      - name: Checkout MX Module Source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.mx_repo_owner_repo }}
+          ref: ${{ github.event.inputs.mx_branch }}
+          path: mx_module
+          fetch-depth: 1
 
-    - name: Install Build Dependencies
-      run: |
-        sudo apt update -y
-        sudo apt install -y git device-tree-compiler lz4 xz-utils zlib1g-dev openjdk-17-jdk gcc g++ python3 python-is-python3 p7zip-full android-sdk-libsparse-utils erofs-utils \
-        default-jdk git gnupg flex bison gperf build-essential zip curl libc6-dev libncurses-dev libx11-dev libreadline-dev libgl1 libgl1-mesa-dev \
-        python3 make sudo gcc g++ bc grep tofrodos python3-markdown libxml2-utils xsltproc zlib1g-dev python-is-python3 libc6-dev libtinfo6 \
-        make repo cpio kmod openssl libelf-dev pahole libssl-dev --fix-missing
-        wget http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
-        sudo dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb
+      - name: Update Kernel Submodules
+        run: |
+          cd kernel
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
-    - name: Set up Kernel Build Environment
-      run: |
-        echo "ARCH=arm64" >> $GITHUB_ENV
-        echo "SUBARCH=arm64" >> $GITHUB_ENV
-        echo "CROSS_COMPILE=${{ github.workspace }}/kernel/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-" >> $GITHUB_ENV
-        echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-        echo "CC=${{ github.workspace }}/kernel/toolchain/clang/host/linux-x86/clang-r353983c/bin/clang" >> $GITHUB_ENV
-        echo "PATH=${{ github.workspace }}/kernel/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin:${{ github.workspace }}/kernel/toolchain/clang/host/linux-x86/clang-r353983c/bin:$PATH" >> $GITHUB_ENV
-        cd kernel
-        make ${{ github.event.inputs.defconfig_name }}
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
 
-    - name: Build Kernel Module
-      run: |
-        cd mx_module
-        make -C ${{ github.workspace }}/kernel M=$(pwd) modules
+          sudo apt-get install -y \
+            bc \
+            bison \
+            build-essential \
+            cpio \
+            curl \
+            device-tree-compiler \
+            flex \
+            gcc \
+            g++ \
+            git \
+            kmod \
+            libelf-dev \
+            libncurses-dev \
+            libssl-dev \
+            lz4 \
+            make \
+            openssl \
+            pahole \
+            python-is-python3 \
+            python3 \
+            rsync \
+            unzip \
+            xz-utils \
+            zip \
+            zlib1g-dev
 
-    - name: Package Module
-      run: |
-        mkdir -p output
-        find mx_module -name "*.ko" -exec cp {} output/ \;
-        zip -r mx_module_flashable.zip output/
+      - name: Verify Kernel Tree
+        run: |
+          echo "===== KernelSU ====="
+          ls -la kernel/drivers || true
+          ls -la kernel/drivers/kernelsu || true
 
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: mx_kernel_module
-        path: mx_module_flashable.zip
+          echo
+          echo "===== Kconfig ====="
+          test -f kernel/drivers/kernelsu/Kconfig && echo "KernelSU Kconfig found"
+
+          echo
+          echo "===== Defconfig ====="
+          ls kernel/arch/arm64/configs/${{ github.event.inputs.defconfig_name }}
+
+      - name: Setup Environment
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "SUBARCH=arm64" >> $GITHUB_ENV
+
+          echo "CROSS_COMPILE=${{ github.workspace }}/kernel/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-" >> $GITHUB_ENV
+
+          echo "CC=${{ github.workspace }}/kernel/toolchain/clang/host/linux-x86/clang-r353983c/bin/clang" >> $GITHUB_ENV
+
+          echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
+
+          echo "${{ github.workspace }}/kernel/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin" >> $GITHUB_PATH
+          echo "${{ github.workspace }}/kernel/toolchain/clang/host/linux-x86/clang-r353983c/bin" >> $GITHUB_PATH
+
+      - name: Generate Defconfig
+        working-directory: kernel
+        run: |
+          make ${{ github.event.inputs.defconfig_name }}
+
+      - name: Build MX Module
+        working-directory: mx_module
+        run: |
+          make -C ${{ github.workspace }}/kernel M=$(pwd) modules
+
+      - name: Package Module
+        run: |
+          mkdir output
+          find mx_module -name "*.ko" -exec cp {} output/ \;
+          cd output
+          zip -r ../mx_module_flashable.zip .
+
+      - name: Upload Module
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx_kernel_module
+          path: mx_module_flashable.zip
