@@ -9,12 +9,12 @@ on:
         default: sus
 
       mx_repo_owner_repo:
-        description: MX repository (owner/repo)
+        description: MX repo (owner/repo)
         required: true
         default: fuqiuluo/android-wuwa
 
       mx_branch:
-        description: MX repository branch
+        description: MX branch
         required: true
         default: master
 
@@ -23,11 +23,15 @@ on:
         required: true
         default: exynos850-a04sxx_defconfig
 
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      # ----------------------------
+      # Checkout kernel (WITH SUBMODULES FIX)
+      # ----------------------------
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
@@ -37,66 +41,47 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Checkout MX Module Source
+      # ----------------------------
+      # Checkout MX module
+      # ----------------------------
+      - name: Checkout MX Module
         uses: actions/checkout@v4
         with:
           repository: ${{ github.event.inputs.mx_repo_owner_repo }}
           ref: ${{ github.event.inputs.mx_branch }}
           path: mx_module
-          fetch-depth: 1
 
-      - name: Update Kernel Submodules
+      # ----------------------------
+      # Fix submodules explicitly (IMPORTANT)
+      # ----------------------------
+      - name: Init Kernel Submodules
         run: |
           cd kernel
           git submodule sync --recursive
           git submodule update --init --recursive
 
-      - name: Install Build Dependencies
+      # ----------------------------
+      # Fix hidden CRLF issues (safe, does NOT harm Linux repo)
+      # ----------------------------
+      - name: Fix line endings
         run: |
-          sudo apt-get update
+          find kernel -type f -name "Kconfig" -exec sed -i 's/\r$//' {} \;
 
-          sudo apt-get install -y \
-            bc \
-            bison \
-            build-essential \
-            cpio \
-            curl \
-            device-tree-compiler \
-            flex \
-            gcc \
-            g++ \
-            git \
-            kmod \
-            libelf-dev \
-            libncurses-dev \
-            libssl-dev \
-            lz4 \
-            make \
-            openssl \
-            pahole \
-            python-is-python3 \
-            python3 \
-            rsync \
-            unzip \
-            xz-utils \
-            zip \
-            zlib1g-dev
-
-      - name: Verify Kernel Tree
+      # ----------------------------
+      # Install dependencies
+      # ----------------------------
+      - name: Install dependencies
         run: |
-          echo "===== KernelSU ====="
-          ls -la kernel/drivers || true
-          ls -la kernel/drivers/kernelsu || true
+          sudo apt update -y
+          sudo apt install -y \
+            bc bison build-essential cpio curl flex git kmod \
+            libelf-dev libncurses-dev libssl-dev lz4 make \
+            openssl pahole python3 rsync unzip xz-utils zip zlib1g-dev
 
-          echo
-          echo "===== Kconfig ====="
-          test -f kernel/drivers/kernelsu/Kconfig && echo "KernelSU Kconfig found"
-
-          echo
-          echo "===== Defconfig ====="
-          ls kernel/arch/arm64/configs/${{ github.event.inputs.defconfig_name }}
-
-      - name: Setup Environment
+      # ----------------------------
+      # Kernel environment
+      # ----------------------------
+      - name: Setup environment
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "SUBARCH=arm64" >> $GITHUB_ENV
@@ -110,25 +95,36 @@ jobs:
           echo "${{ github.workspace }}/kernel/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin" >> $GITHUB_PATH
           echo "${{ github.workspace }}/kernel/toolchain/clang/host/linux-x86/clang-r353983c/bin" >> $GITHUB_PATH
 
-      - name: Generate Defconfig
+      # ----------------------------
+      # DEFCONFIG (this is where your error happens)
+      # ----------------------------
+      - name: Run defconfig
         working-directory: kernel
         run: |
           make ${{ github.event.inputs.defconfig_name }}
 
-      - name: Build MX Module
-        working-directory: mx_module
+      # ----------------------------
+      # Build external module ONLY
+      # ----------------------------
+      - name: Build module
         run: |
-          make -C ${{ github.workspace }}/kernel M=$(pwd) modules
+          make -C kernel M=${{ github.workspace }}/mx_module modules
 
-      - name: Package Module
+      # ----------------------------
+      # Package result
+      # ----------------------------
+      - name: Package module
         run: |
-          mkdir output
+          mkdir -p output
           find mx_module -name "*.ko" -exec cp {} output/ \;
           cd output
-          zip -r ../mx_module_flashable.zip .
+          zip -r ../mx_module.zip .
 
-      - name: Upload Module
+      # ----------------------------
+      # Upload artifact
+      # ----------------------------
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: mx_kernel_module
-          path: mx_module_flashable.zip
+          path: mx_module.zip
