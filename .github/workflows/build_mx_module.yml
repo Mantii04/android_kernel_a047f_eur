@@ -7,10 +7,10 @@ on:
         description: 'Kernel source branch'
         required: true
         default: 'sus'
-      mx_repo_url:
-        description: 'MX repository URL (android-wuwa fork)'
+      mx_repo_owner_repo:
+        description: 'MX repository (owner/repo format, e.g., fuqiuluo/android-wuwa)'
         required: true
-        default: 'https://github.com/fuqiuluo/android-wuwa.git'
+        default: 'fuqiuluo/android-wuwa'
       mx_branch:
         description: 'MX repository branch'
         required: true
@@ -35,7 +35,7 @@ jobs:
     - name: Checkout MX Module Source
       uses: actions/checkout@v4
       with:
-        repository: ${{ github.event.inputs.mx_repo_url }}
+        repository: ${{ github.event.inputs.mx_repo_owner_repo }}
         ref: ${{ github.event.inputs.mx_branch }}
         path: mx_module
 
