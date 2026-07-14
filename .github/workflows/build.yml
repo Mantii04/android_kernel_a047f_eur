@@ -46,7 +46,7 @@ jobs:
           name: ExternalModuleSM-A047F-${{ github.event.inputs.tag }}
           path: build/modules/*.ko
 
-      - name: Create release
+      - name: Create or update release
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.event.inputs.tag }}
@@ -55,4 +55,6 @@ jobs:
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: "build/*.tar,build/modules/*.ko"
+          allowUpdates: true
+          replacesArtifacts: true
           body: "Commit SHA: ${{ github.sha }}"
