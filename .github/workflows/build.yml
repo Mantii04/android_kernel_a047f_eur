@@ -20,7 +20,7 @@ jobs:
       - name: Set up build environment
         run: |
           sudo apt update -y
-          sudo apt install -y libncurses5-dev bc bison flex make gcc g++ git python3
+          sudo apt install -y libncurses5-dev bc bison flex make gcc g++ git python3 zip unzip
 
       - name: Set environment variable
         run: |
@@ -30,11 +30,21 @@ jobs:
         run: |
           bash build.sh
 
-      - name: Upload Artifacts
+      - name: Build External Module
+        run: |
+          bash build_external_module.sh
+
+      - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
           name: KernelSM-A047F-${{ github.event.inputs.tag }}
           path: build/*.tar
+
+      - name: Upload Module Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ExternalModuleSM-A047F-${{ github.event.inputs.tag }}
+          path: build/modules/*.ko
 
       - name: Create release
         uses: ncipollo/release-action@v1
@@ -44,5 +54,5 @@ jobs:
           draft: false
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: "build/*.tar"
+          artifacts: "build/*.tar,build/modules/*.ko"
           body: "Commit SHA: ${{ github.sha }}"
