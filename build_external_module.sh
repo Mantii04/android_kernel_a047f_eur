@@ -9,7 +9,8 @@ export ANDROID_MAJOR_VERSION=s
 export BUILD_CROSS_COMPILE="${RDIR}/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-"
 export BUILD_CC="${RDIR}/toolchain/clang/host/linux-x86/clang-r353983c/bin/clang"
 
-export MODULE_DIR="${RDIR}/external/khack"
+# Point directly to our ff_driver folder
+export MODULE_DIR="${RDIR}/ff_driver"
 
 make -w \
   -C "${RDIR}" \
