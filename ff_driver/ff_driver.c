@@ -6,6 +6,7 @@
 #include <linux/sched.h>
 #include <linux/pid.h>
 #include <linux/mm.h>
+#include <linux/rwsem.h>
 
 #define IOCTL_READ_MEM   _IOWR('f', 1, struct mem_request)
 #define IOCTL_WRITE_MEM  _IOWR('f', 2, struct mem_request)
@@ -38,16 +39,15 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
         rcu_read_unlock();
         return -ESRCH;
     }
-    get_task_struct(task);
     rcu_read_unlock();
 
     mm = get_task_mm(task);
     if (!mm) {
-        put_task_struct(task);
         return -EINVAL;
     }
 
-    mmap_read_lock(mm);
+    // Use older kernel API for mmap semaphore
+    down_read(&mm->mmap_sem);
 
     switch (cmd) {
         case IOCTL_READ_MEM:
@@ -64,9 +64,8 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
             ret = -EINVAL;
     }
 
-    mmap_read_unlock(mm);
+    up_read(&mm->mmap_sem);
     mmput(mm);
-    put_task_struct(task);
 
     return ret;
 }
