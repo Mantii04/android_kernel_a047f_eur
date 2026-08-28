@@ -1,4 +1,5 @@
-obj-m += entry.o
+obj-m += memkernel.o
+memkernel-objs := entry.o memory.o process.o
 
 KDIR ?= $(PWD)
 PWD := $(shell pwd)
