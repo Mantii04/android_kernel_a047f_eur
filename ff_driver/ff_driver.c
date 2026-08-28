@@ -6,6 +6,7 @@
 #include <linux/sched.h>
 #include <linux/pid.h>
 #include <linux/mm.h>
+#include <linux/atomic.h>
 
 #define IOCTL_READ_MEM   _IOWR('f', 1, struct mem_request)
 #define IOCTL_WRITE_MEM  _IOWR('f', 2, struct mem_request)
@@ -19,7 +20,6 @@ struct mem_request {
 
 static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     struct mem_request req;
-    struct pid *pid_struct;
     struct task_struct *task;
     int ret = 0;
 
@@ -27,35 +27,36 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
         return -EFAULT;
 
     rcu_read_lock();
-    pid_struct = find_vpid(req.pid);
-    if (!pid_struct) {
-        rcu_read_unlock();
-        return -ESRCH;
-    }
-    task = pid_task(pid_struct, PIDTYPE_PID);
+    task = find_task_by_vpid(req.pid);
     if (!task) {
         rcu_read_unlock();
         return -ESRCH;
     }
+    
+    // Manually increment the reference count so the task doesn't get freed
+    // after we drop the rcu_read_lock. (Replaces get_task_struct)
+    atomic_inc(&task->usage);
+    rcu_read_unlock();
 
-    // In this kernel version, access_process_vm handles get_task_mm 
-    // and down_read(&mm->mmap_sem) internally. We must NOT do it here.
+    // Now we are safe to sleep in access_process_vm!
     switch (cmd) {
         case IOCTL_READ_MEM:
-            ret = access_process_vm(task, req.address, req.buffer, req.size, FOLL_FORCE);
-            if (ret != req.size) ret = -EIO;
+            ret = access_process_vm(task, req.address, req.buffer, (int)req.size, FOLL_FORCE);
+            if (ret != (int)req.size) ret = -EIO;
             else ret = 0;
             break;
         case IOCTL_WRITE_MEM:
-            ret = access_process_vm(task, req.address, req.buffer, req.size, FOLL_FORCE | FOLL_WRITE);
-            if (ret != req.size) ret = -EIO;
+            ret = access_process_vm(task, req.address, req.buffer, (int)req.size, FOLL_FORCE | FOLL_WRITE);
+            if (ret != (int)req.size) ret = -EIO;
             else ret = 0;
             break;
         default:
             ret = -EINVAL;
     }
 
-    rcu_read_unlock();
+    // Decrement the reference count (Replaces put_task_struct)
+    // If it hits 0 it won't be freed immediately, but that's fine for us.
+    atomic_dec(&task->usage);
 
     return ret;
 }
