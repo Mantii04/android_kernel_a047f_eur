@@ -6,6 +6,7 @@
 #include <linux/sched.h>
 #include <linux/pid.h>
 #include <linux/mm.h>
+#include <linux/slab.h>
 
 #define IOCTL_READ_MEM   _IOWR('f', 1, struct mem_request)
 #define IOCTL_WRITE_MEM  _IOWR('f', 2, struct mem_request)
@@ -22,11 +23,11 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     struct pid *pid_s;
     struct task_struct *task;
     int ret = 0;
+    void *kbuf;
 
     if (copy_from_user(&req, (void __user *)arg, sizeof(req)))
         return -EFAULT;
 
-    // Use standard exported kernel functions to find the task
     pid_s = find_get_pid(req.pid);
     if (!pid_s) return -ESRCH;
 
@@ -36,15 +37,33 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
         return -ESRCH;
     }
 
-    // In Linux 4.19, access_process_vm handles its own locking and ref counting internally!
+    // Allocate a safe kernel buffer
+    kbuf = kmalloc(req.size, GFP_KERNEL);
+    if (!kbuf) {
+        put_pid(pid_s);
+        return -ENOMEM;
+    }
+
     switch (cmd) {
         case IOCTL_READ_MEM:
-            ret = access_process_vm(task, req.address, req.buffer, (int)req.size, FOLL_FORCE);
-            if (ret != (int)req.size) ret = -EIO;
-            else ret = 0;
+            // Read into kernel buffer first
+            ret = access_process_vm(task, req.address, kbuf, (int)req.size, FOLL_FORCE);
+            if (ret == (int)req.size) {
+                // Then safely copy to user space
+                if (copy_to_user(req.buffer, kbuf, req.size)) ret = -EFAULT;
+                else ret = 0;
+            } else {
+                ret = -EIO;
+            }
             break;
         case IOCTL_WRITE_MEM:
-            ret = access_process_vm(task, req.address, req.buffer, (int)req.size, FOLL_FORCE | FOLL_WRITE);
+            // Safely copy from user space first
+            if (copy_from_user(kbuf, req.buffer, req.size)) {
+                ret = -EFAULT;
+                break;
+            }
+            // Then write from kernel buffer
+            ret = access_process_vm(task, req.address, kbuf, (int)req.size, FOLL_FORCE | FOLL_WRITE);
             if (ret != (int)req.size) ret = -EIO;
             else ret = 0;
             break;
@@ -52,6 +71,7 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
             ret = -EINVAL;
     }
 
+    kfree(kbuf);
     put_pid(pid_s);
     return ret;
 }
