@@ -4,9 +4,10 @@
 #include <linux/device.h>
 #include <linux/uaccess.h>
 #include <linux/sched.h>
-#include <linux/pid.h>
+#include <linux/sched/task.h>
 #include <linux/mm.h>
 #include <linux/atomic.h>
+#include <linux/pid.h>
 
 #define IOCTL_READ_MEM   _IOWR('f', 1, struct mem_request)
 #define IOCTL_WRITE_MEM  _IOWR('f', 2, struct mem_request)
@@ -20,25 +21,24 @@ struct mem_request {
 
 static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     struct mem_request req;
-    struct task_struct *task;
+    struct task_struct *task = NULL;
     int ret = 0;
 
     if (copy_from_user(&req, (void __user *)arg, sizeof(req)))
         return -EFAULT;
 
+    // Manually iterate through all processes to find the PID
     rcu_read_lock();
-    task = find_task_by_vpid(req.pid);
-    if (!task) {
-        rcu_read_unlock();
-        return -ESRCH;
+    for_each_process(task) {
+        if (task->pid == req.pid) {
+            atomic_inc(&task->usage); // Manually increment refcount
+            break;
+        }
     }
-    
-    // Manually increment the reference count so the task doesn't get freed
-    // after we drop the rcu_read_lock. (Replaces get_task_struct)
-    atomic_inc(&task->usage);
     rcu_read_unlock();
 
-    // Now we are safe to sleep in access_process_vm!
+    if (!task) return -ESRCH;
+
     switch (cmd) {
         case IOCTL_READ_MEM:
             ret = access_process_vm(task, req.address, req.buffer, (int)req.size, FOLL_FORCE);
@@ -54,10 +54,7 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
             ret = -EINVAL;
     }
 
-    // Decrement the reference count (Replaces put_task_struct)
-    // If it hits 0 it won't be freed immediately, but that's fine for us.
-    atomic_dec(&task->usage);
-
+    atomic_dec(&task->usage); // Decrement refcount
     return ret;
 }
 
