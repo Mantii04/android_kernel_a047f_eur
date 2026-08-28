@@ -4,10 +4,8 @@
 #include <linux/device.h>
 #include <linux/uaccess.h>
 #include <linux/sched.h>
-#include <linux/sched/task.h>
-#include <linux/mm.h>
-#include <linux/atomic.h>
 #include <linux/pid.h>
+#include <linux/mm.h>
 
 #define IOCTL_READ_MEM   _IOWR('f', 1, struct mem_request)
 #define IOCTL_WRITE_MEM  _IOWR('f', 2, struct mem_request)
@@ -21,24 +19,24 @@ struct mem_request {
 
 static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     struct mem_request req;
-    struct task_struct *task = NULL;
+    struct pid *pid_s;
+    struct task_struct *task;
     int ret = 0;
 
     if (copy_from_user(&req, (void __user *)arg, sizeof(req)))
         return -EFAULT;
 
-    // Manually iterate through all processes to find the PID
-    rcu_read_lock();
-    for_each_process(task) {
-        if (task->pid == req.pid) {
-            atomic_inc(&task->usage); // Manually increment refcount
-            break;
-        }
+    // Use standard exported kernel functions to find the task
+    pid_s = find_get_pid(req.pid);
+    if (!pid_s) return -ESRCH;
+
+    task = pid_task(pid_s, PIDTYPE_PID);
+    if (!task) {
+        put_pid(pid_s);
+        return -ESRCH;
     }
-    rcu_read_unlock();
 
-    if (!task) return -ESRCH;
-
+    // In Linux 4.19, access_process_vm handles its own locking and ref counting internally!
     switch (cmd) {
         case IOCTL_READ_MEM:
             ret = access_process_vm(task, req.address, req.buffer, (int)req.size, FOLL_FORCE);
@@ -54,7 +52,7 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
             ret = -EINVAL;
     }
 
-    atomic_dec(&task->usage); // Decrement refcount
+    put_pid(pid_s);
     return ret;
 }
 
