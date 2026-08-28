@@ -6,7 +6,6 @@
 #include <linux/sched.h>
 #include <linux/pid.h>
 #include <linux/mm.h>
-#include <linux/rwsem.h>
 
 #define IOCTL_READ_MEM   _IOWR('f', 1, struct mem_request)
 #define IOCTL_WRITE_MEM  _IOWR('f', 2, struct mem_request)
@@ -22,7 +21,6 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     struct mem_request req;
     struct pid *pid_struct;
     struct task_struct *task;
-    struct mm_struct *mm;
     int ret = 0;
 
     if (copy_from_user(&req, (void __user *)arg, sizeof(req)))
@@ -39,16 +37,9 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
         rcu_read_unlock();
         return -ESRCH;
     }
-    rcu_read_unlock();
 
-    mm = get_task_mm(task);
-    if (!mm) {
-        return -EINVAL;
-    }
-
-    // Use older kernel API for mmap semaphore
-    down_read(&mm->mmap_sem);
-
+    // In this kernel version, access_process_vm handles get_task_mm 
+    // and down_read(&mm->mmap_sem) internally. We must NOT do it here.
     switch (cmd) {
         case IOCTL_READ_MEM:
             ret = access_process_vm(task, req.address, req.buffer, req.size, FOLL_FORCE);
@@ -64,8 +55,7 @@ static long ff_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
             ret = -EINVAL;
     }
 
-    up_read(&mm->mmap_sem);
-    mmput(mm);
+    rcu_read_unlock();
 
     return ret;
 }
