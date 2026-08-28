@@ -1,4 +1,4 @@
-obj-m += ff_driver.o
+obj-m += entry.o
 
 KDIR ?= $(PWD)
 PWD := $(shell pwd)

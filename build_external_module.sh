@@ -9,12 +9,12 @@ export ANDROID_MAJOR_VERSION=s
 export BUILD_CROSS_COMPILE="${RDIR}/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-"
 export BUILD_CC="${RDIR}/toolchain/clang/host/linux-x86/clang-r353983c/bin/clang"
 
-# FIX: Remove the accidental double space in vermagic in ALL config files
+# FIX: Remove the accidental double space in vermagic
 sed -i 's/Diamant  SMP/Diamant SMP/g' "${RDIR}/out/.config"
 sed -i 's/Diamant  SMP/Diamant SMP/g' "${RDIR}/out/include/config/kernel.release"
 sed -i 's/Diamant  SMP/Diamant SMP/g' "${RDIR}/out/include/generated/utsrelease.h"
 
-export MODULE_DIR="${RDIR}/ff_driver"
+export MODULE_DIR="${RDIR}/memkernel"
 
 make -w \
   -C "${RDIR}" \
