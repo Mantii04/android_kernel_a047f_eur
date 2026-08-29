@@ -20,55 +20,58 @@
 #define MM_READ_UNLOCK(mm) up_read(&(mm)->mmap_sem);
 #endif
 
-
-uintptr_t get_module_base(pid_t pid, char *name)
+uintptr_t get_module_base(pid_t pid, char *name, int index)
 {
-	struct pid *pid_struct;
-	struct task_struct *task;
-	struct mm_struct *mm;
-	struct vm_area_struct *vma;
+    struct pid *pid_struct;
+    struct task_struct *task;
+    struct mm_struct *mm;
+    struct vm_area_struct *vma;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
-	struct vma_iterator vmi;
+    struct vma_iterator vmi;
 #endif
-	uintptr_t module_base = 0;
+    uintptr_t module_base = 0;
+    int current_index = 0;
 
-	pid_struct = find_get_pid(pid);
-	if (!pid_struct) {
-		return false;
-	}
-	task = get_pid_task(pid_struct, PIDTYPE_PID);
-	put_pid(pid_struct);
-	if (!task) {
-		return false;
-	}
-	mm = get_task_mm(task);
-	put_task_struct(task);
-	if (!mm) {
-		return false;
-	}
+    pid_struct = find_get_pid(pid);
+    if (!pid_struct) {
+        return false;
+    }
+    task = get_pid_task(pid_struct, PIDTYPE_PID);
+    put_pid(pid_struct);
+    if (!task) {
+        return false;
+    }
+    mm = get_task_mm(task);
+    put_task_struct(task);
+    if (!mm) {
+        return false;
+    }
 
-	MM_READ_LOCK(mm);
+    MM_READ_LOCK(mm);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
-	vma_iter_init(&vmi, mm, 0);
-	for_each_vma(vmi, vma)
+    vma_iter_init(&vmi, mm, 0);
+    for_each_vma(vmi, vma)
 #else
-	for (vma = mm->mmap; vma; vma = vma->vm_next)
+    for (vma = mm->mmap; vma; vma = vma->vm_next)
 #endif
-	{
-		char buf[ARC_PATH_MAX];
-		char *path_nm = "";
+    {
+        char buf[ARC_PATH_MAX];
+        char *path_nm = "";
 
-		if (vma->vm_file) {
-			path_nm = file_path(vma->vm_file, buf, ARC_PATH_MAX - 1);
-			if (!strcmp(kbasename(path_nm), name)) {
-				module_base = vma->vm_start;
-				break;
-			}
-		}
-	}
+        if (vma->vm_file) {
+            path_nm = file_path(vma->vm_file, buf, ARC_PATH_MAX - 1);
+            if (!strcmp(kbasename(path_nm), name)) {
+                current_index++;
+                if (current_index == index) {
+                    module_base = vma->vm_start;
+                    break;
+                }
+            }
+        }
+    }
 
-	MM_READ_UNLOCK(mm);
-	mmput(mm);
-	return module_base;
+    MM_READ_UNLOCK(mm);
+    mmput(mm);
+    return module_base;
 }
