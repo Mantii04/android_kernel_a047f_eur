@@ -54,7 +54,19 @@ CC=${BUILD_CC} \
 #build kernel image
 build_kernel(){
     make ${ARGS} exynos850-a04sxx_defconfig a04s.config version.config
-    make ${ARGS} menuconfig
+    
+    # --- FIX: We removed 'make menuconfig' because it breaks on GitHub Actions ---
+    
+    # Let's verify the config is actually set before compiling!
+    echo "======================================================"
+    echo "CHECKING CONFIG:"
+    grep MODULE_FORCE_LOAD .config || echo "ERROR: FORCE LOAD NOT FOUND IN CONFIG!"
+    echo "======================================================"
+    
+    # Run olddefconfig to silently fix any missing dependencies without asking questions
+    make ${ARGS} olddefconfig
+    
+    # Compile the kernel
     make ${ARGS} || exit 1
 }
 
