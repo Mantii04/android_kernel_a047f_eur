@@ -7,6 +7,7 @@
 #include <linux/version.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
+#include <linux/sched.h>
 
 #include <asm/cpu.h>
 #include <asm/io.h>
@@ -28,9 +29,11 @@
 #define MM_READ_UNLOCK(mm) up_read(&(mm)->mmap_sem);
 #endif
 
-/* Retry tuning: 48 attempts * 3us = 144us max window per chunk. */
-#define PTE_RETRY_MAX     48
-#define PTE_RETRY_UDELAY  3
+/* Retry tuning: 120 attempts * ~8us with cond_resched between = ~1ms window.
+ * Long enough for the game's own execution to fault a transiently-unmapped
+ * page back in, short enough that a genuinely invalid address doesn't stall. */
+#define PTE_RETRY_MAX     120
+#define PTE_RETRY_UDELAY  8
 
 
 static phys_addr_t translate_linear_address(struct mm_struct *mm, uintptr_t va)
@@ -73,7 +76,9 @@ static phys_addr_t translate_linear_address(struct mm_struct *mm, uintptr_t va)
         return 0;
     }
 
-    /* Single atomic PTE snapshot — kills the "BOT then real name" flip. */
+    /* Single atomic PTE snapshot — kills the "BOT then real name" flip
+     * that happened when the PTE was read three times and the kernel
+     * remapped it between reads. */
     pte_val = READ_ONCE(*pte);
     if (pte_none(pte_val)) {
         return 0;
@@ -88,18 +93,23 @@ static phys_addr_t translate_linear_address(struct mm_struct *mm, uintptr_t va)
 }
 
 
-/* Retry wrapper — calls the same manual walk repeatedly until the page
- * becomes resident again. Does NOT change the read/write strategy. */
+/* Retry wrapper — the manual walk with a short sleep between attempts so
+ * the game's own execution can fault the page back in. Lock is released
+ * between attempts to unblock the game's own mm operations. */
 static phys_addr_t translate_linear_address_retry(struct mm_struct *mm, uintptr_t va)
 {
-    phys_addr_t pa;
+    phys_addr_t pa = 0;
     int i;
 
     for (i = 0; i < PTE_RETRY_MAX; i++) {
+        MM_READ_LOCK(mm);
         pa = translate_linear_address(mm, va);
+        MM_READ_UNLOCK(mm);
         if (pa) {
             return pa;
         }
+        /* Yield to game threads so they can fault the page back in */
+        cond_resched();
         udelay(PTE_RETRY_UDELAY);
     }
     return 0;
@@ -193,12 +203,11 @@ ssize_t readwrite_process_memory(
         return -1;
     }
 
-    MM_READ_LOCK(mm);
-    while(size > 0)
-    {
+    while (size > 0) {
         pa = translate_linear_address_retry(mm, addr);
-        if (!pa)
+        if (!pa) {
             break;
+        }
 
         max_chunk = min(PAGE_SIZE - (addr & (PAGE_SIZE - 1)), min(size, PAGE_SIZE));
 
@@ -214,7 +223,6 @@ ssize_t readwrite_process_memory(
         buffer += max_chunk;
         addr += max_chunk;
     }
-    MM_READ_UNLOCK(mm);
     mmput(mm);
     return (count > 0 ? count : -1);
 }
