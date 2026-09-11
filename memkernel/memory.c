@@ -6,6 +6,7 @@
 #include <linux/uaccess.h>
 #include <linux/version.h>
 #include <linux/kernel.h>
+#include <linux/delay.h>
 
 #include <asm/cpu.h>
 #include <asm/io.h>
@@ -27,57 +28,101 @@
 #define MM_READ_UNLOCK(mm) up_read(&(mm)->mmap_sem);
 #endif
 
+/* Retry tuning: 48 attempts * 3us = 144us max window per chunk.
+ * Long enough to outlast a page-migration or GC pause, short enough
+ * that a genuinely invalid address doesn't stall the ioctl. */
+#define PTE_RETRY_MAX     48
+#define PTE_RETRY_UDELAY  3
+
 
 static phys_addr_t translate_linear_address(struct mm_struct *mm, uintptr_t va)
 {
-	pgd_t *pgd;
+    pgd_t *pgd;
 #ifdef __PAGETABLE_P4D_FOLDED
-	p4d_t *p4d;
+    p4d_t *p4d;
 #endif
-	pmd_t *pmd;
-	pte_t *pte;
-	pud_t *pud;
+    pmd_t *pmd;
+    pte_t *pte;
+    pud_t *pud;
+    pte_t pte_val;
 
-	phys_addr_t page_addr;
-	uintptr_t page_offset;
+    phys_addr_t page_addr;
+    uintptr_t page_offset;
 
-	pgd = pgd_offset(mm, va);
-	if (pgd_none(*pgd) || pgd_bad(*pgd)) {
-		return 0;
-	}
+    pgd = pgd_offset(mm, va);
+    if (pgd_none(*pgd) || pgd_bad(*pgd)) {
+        return 0;
+    }
 #ifdef __PAGETABLE_P4D_FOLDED
-	p4d = p4d_offset(pgd, va);
-	if (p4d_none(*p4d) || p4d_bad(*p4d)) {
-		return 0;
-	}
-	pud = pud_offset(p4d, va);
+    p4d = p4d_offset(pgd, va);
+    if (p4d_none(*p4d) || p4d_bad(*p4d)) {
+        return 0;
+    }
+    pud = pud_offset(p4d, va);
 #else
-	pud = pud_offset(pgd, va);
+    pud = pud_offset(pgd, va);
 #endif
-	if (pud_none(*pud) || pud_bad(*pud)) {
-		return 0;
-	}
-	pmd = pmd_offset(pud, va);
-	if (pmd_none(*pmd)) {
-		return 0;
-	}
-	pte = pte_offset_kernel(pmd, va);
-	if (pte_none(*pte)) {
-		return 0;
-	}
-	if (!pte_present(*pte)) {
-		return 0;
-	}
-	page_addr = (phys_addr_t)(pte_pfn(*pte) << PAGE_SHIFT);
-	page_offset = va & (PAGE_SIZE - 1);
+    if (pud_none(*pud) || pud_bad(*pud)) {
+        return 0;
+    }
+    pmd = pmd_offset(pud, va);
+    if (pmd_none(*pmd)) {
+        return 0;
+    }
 
-	return page_addr + page_offset;
+    /* Huge page (2MB THP) — common for large .so segments like libil2cpp.
+     * Without this branch, pte_offset_kernel walks into garbage and the
+     * read fails for that whole region. */
+    if (pmd_huge(*pmd)) {
+        page_addr = (phys_addr_t)(pmd_pfn(*pmd) << PAGE_SHIFT);
+        page_offset = va & (PMD_SIZE - 1);
+        return page_addr + page_offset;
+    }
+
+    pte = pte_offset_kernel(pmd, va);
+    if (!pte) {
+        return 0;
+    }
+
+    /* Single atomic PTE snapshot — kills the "BOT then real name" flip. */
+    pte_val = READ_ONCE(*pte);
+    if (pte_none(pte_val)) {
+        return 0;
+    }
+    if (!pte_present(pte_val)) {
+        return 0;
+    }
+    page_addr = (phys_addr_t)(pte_pfn(pte_val) << PAGE_SHIFT);
+    page_offset = va & (PAGE_SIZE - 1);
+
+    return page_addr + page_offset;
 }
+
+
+/* Retry wrapper — does NOT change the translation strategy.
+ * It just calls the same manual walk repeatedly until the page
+ * becomes resident again, which happens almost immediately because
+ * the game is executing and touching its own memory. */
+static phys_addr_t translate_linear_address_retry(struct mm_struct *mm, uintptr_t va)
+{
+    phys_addr_t pa;
+    int i;
+
+    for (i = 0; i < PTE_RETRY_MAX; i++) {
+        pa = translate_linear_address(mm, va);
+        if (pa) {
+            return pa;
+        }
+        udelay(PTE_RETRY_UDELAY);
+    }
+    return 0;
+}
+
 
 #if !defined(ARCH_HAS_VALID_PHYS_ADDR_RANGE) || defined(MODULE)
 static inline int memk_valid_phys_addr_range(phys_addr_t addr, size_t size)
 {
-	return addr + size <= __pa(high_memory);
+    return addr + size <= __pa(high_memory);
 }
 #define IS_VALID_PHYS_ADDR_RANGE(x,y) memk_valid_phys_addr_range(x,y)
 #else
@@ -86,104 +131,103 @@ static inline int memk_valid_phys_addr_range(phys_addr_t addr, size_t size)
 
 static size_t read_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
-	void *mapped;
+    void *mapped;
 
-	if (!pfn_valid(__phys_to_pfn(pa))) {
-		return 0;
-	}
-	if (!IS_VALID_PHYS_ADDR_RANGE(pa, size)) {
-		return 0;
-	}
-	mapped = ioremap_cache(pa, size);
-	if (!mapped) {
-		return 0;
-	}
-	if (copy_to_user(buffer, mapped, size)) {
-		iounmap(mapped);
-		return 0;
-	}
-	iounmap(mapped);
-	return size;
+    if (!pfn_valid(__phys_to_pfn(pa))) {
+        return 0;
+    }
+    if (!IS_VALID_PHYS_ADDR_RANGE(pa, size)) {
+        return 0;
+    }
+    mapped = ioremap_cache(pa, size);
+    if (!mapped) {
+        return 0;
+    }
+    if (copy_to_user(buffer, mapped, size)) {
+        iounmap(mapped);
+        return 0;
+    }
+    iounmap(mapped);
+    return size;
 }
 
 static size_t write_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
-	void *mapped;
+    void *mapped;
 
-	if (!pfn_valid(__phys_to_pfn(pa))) {
-		return 0;
-	}
-	if (!IS_VALID_PHYS_ADDR_RANGE(pa, size)) {
-		return 0;
-	}
-	mapped = ioremap_cache(pa, size);
-	if (!mapped) {
-		return 0;
-	}
-	if (copy_from_user(mapped, buffer, size)) {
-		iounmap(mapped);
-		return 0;
-	}
-	iounmap(mapped);
-	return size;
+    if (!pfn_valid(__phys_to_pfn(pa))) {
+        return 0;
+    }
+    if (!IS_VALID_PHYS_ADDR_RANGE(pa, size)) {
+        return 0;
+    }
+    mapped = ioremap_cache(pa, size);
+    if (!mapped) {
+        return 0;
+    }
+    if (copy_from_user(mapped, buffer, size)) {
+        iounmap(mapped);
+        return 0;
+    }
+    iounmap(mapped);
+    return size;
 }
 
 ssize_t readwrite_process_memory(
-	pid_t pid,
-	uintptr_t addr,
-	void *buffer,
-	size_t size,
-	bool iswrite)
+    pid_t pid,
+    uintptr_t addr,
+    void *buffer,
+    size_t size,
+    bool iswrite)
 {
+    struct task_struct *task;
+    struct mm_struct *mm;
+    struct pid *pid_struct;
+    phys_addr_t pa;
+    size_t max_chunk;
+    size_t count = 0;
 
-	struct task_struct *task;
-	struct mm_struct *mm;
-	struct pid *pid_struct;
-	phys_addr_t pa;
-	size_t max_chunk;
-	size_t count = 0;
+    if (size <= 0 || buffer == NULL) {
+        return -1;
+    }
 
-	if (size <= 0 || buffer == NULL) {
-		return -1;
-	}
+    pid_struct = find_get_pid(pid);
+    if (!pid_struct) {
+        return -1;
+    }
+    task = get_pid_task(pid_struct, PIDTYPE_PID);
+    put_pid(pid_struct);
+    if (!task) {
+        return -1;
+    }
+    mm = get_task_mm(task);
+    put_task_struct(task);
+    if (!mm) {
+        return -1;
+    }
 
-	pid_struct = find_get_pid(pid);
-	if (!pid_struct) {
-		return -1;
-	}
-	task = get_pid_task(pid_struct, PIDTYPE_PID);
-	put_pid(pid_struct);
-	if (!task) {
-		return -1;
-	}
-	mm = get_task_mm(task);
-	put_task_struct(task);
-	if (!mm) {
-		return -1;
-	}
+    MM_READ_LOCK(mm);
+    while(size > 0)
+    {
+        pa = translate_linear_address_retry(mm, addr);
+        if (!pa)
+            break;
 
-	MM_READ_LOCK(mm);
-	while(size > 0)
-	{
-		pa = translate_linear_address(mm, addr);
-		if (!pa)
-			break;
+        max_chunk = min(PAGE_SIZE - (addr & (PAGE_SIZE - 1)), min(size, PAGE_SIZE));
 
-		max_chunk = min(PAGE_SIZE - (addr & (PAGE_SIZE - 1)), min(size, PAGE_SIZE));
+        if (iswrite
+            ? !write_physical_address(pa, buffer, max_chunk)
+            : !read_physical_address(pa, buffer, max_chunk))
+        {
+            break;
+        }
 
-		if (iswrite
-			? !write_physical_address(pa, buffer, max_chunk)
-			: !read_physical_address(pa, buffer, max_chunk))
-		{
-			break;
-		}
-
-		count += max_chunk;
-		size -= max_chunk;
-		buffer += max_chunk;
-		addr += max_chunk;
-	}
-	MM_READ_UNLOCK(mm);
-	mmput(mm);
-	return (count > 0 ? count : -1);
+        count += max_chunk;
+        size -= max_chunk;
+        buffer += max_chunk;
+        addr += max_chunk;
+    }
+    MM_READ_UNLOCK(mm);
+    mmput(mm);
+    return (count > 0 ? count : -1);
 }
