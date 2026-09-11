@@ -28,9 +28,7 @@
 #define MM_READ_UNLOCK(mm) up_read(&(mm)->mmap_sem);
 #endif
 
-/* Retry tuning: 48 attempts * 3us = 144us max window per chunk.
- * Long enough to outlast a page-migration or GC pause, short enough
- * that a genuinely invalid address doesn't stall the ioctl. */
+/* Retry tuning: 48 attempts * 3us = 144us max window per chunk. */
 #define PTE_RETRY_MAX     48
 #define PTE_RETRY_UDELAY  3
 
@@ -70,15 +68,6 @@ static phys_addr_t translate_linear_address(struct mm_struct *mm, uintptr_t va)
         return 0;
     }
 
-    /* Huge page (2MB THP) — common for large .so segments like libil2cpp.
-     * Without this branch, pte_offset_kernel walks into garbage and the
-     * read fails for that whole region. */
-    if (pmd_huge(*pmd)) {
-        page_addr = (phys_addr_t)(pmd_pfn(*pmd) << PAGE_SHIFT);
-        page_offset = va & (PMD_SIZE - 1);
-        return page_addr + page_offset;
-    }
-
     pte = pte_offset_kernel(pmd, va);
     if (!pte) {
         return 0;
@@ -99,10 +88,8 @@ static phys_addr_t translate_linear_address(struct mm_struct *mm, uintptr_t va)
 }
 
 
-/* Retry wrapper — does NOT change the translation strategy.
- * It just calls the same manual walk repeatedly until the page
- * becomes resident again, which happens almost immediately because
- * the game is executing and touching its own memory. */
+/* Retry wrapper — calls the same manual walk repeatedly until the page
+ * becomes resident again. Does NOT change the read/write strategy. */
 static phys_addr_t translate_linear_address_retry(struct mm_struct *mm, uintptr_t va)
 {
     phys_addr_t pa;
