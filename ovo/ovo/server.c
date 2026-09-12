@@ -278,9 +278,7 @@ int ovo_mmap(struct file *file, struct socket *sock,
 		return -EFAULT;
 	}
 
-	if (system_supports_mte()) {
-		vm_flags_set(vma, VM_MTE);
-	}
+
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 	//vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 
