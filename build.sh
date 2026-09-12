@@ -54,24 +54,36 @@ CC=${BUILD_CC} \
 #build kernel image
 build_kernel(){
     make ${ARGS} exynos850-a04sxx_defconfig a04s.config version.config
-    
-    # --- FIX: We removed 'make menuconfig' because it breaks on GitHub Actions ---
-    
-    # Let's verify the config is actually set before compiling!
-    echo "======================================================"
-    echo "CHECKING CONFIG:"
-    grep MODULE_FORCE_LOAD .config || echo "ERROR: FORCE LOAD NOT FOUND IN CONFIG!"
-    echo "======================================================"
-    
-    # Run olddefconfig to silently fix any missing dependencies without asking questions
-    make ${ARGS} olddefconfig
-    
-    # Compile the kernel
-    make ${ARGS} || exit 1
+
+    echo "======================================================="
+    echo "PATCHING out/.config to force MODULE_FORCE_LOAD/UNLOAD=y and MODVERSIONS=n"
+    python3 - << 'PYEOF'
+p = "out/.config"
+with open(p) as f:
+    lines = f.readlines()
+
+def force(key, val, lines):
+    kept = [l for l in lines if not (l.startswith("CONFIG_" + key + "=") or l.startswith("# CONFIG_" + key + " is not set"))]
+    kept.append(val + "\n")
+    return kept
+
+lines = force("MODULE_FORCE_LOAD",   "CONFIG_MODULE_FORCE_LOAD=y",       lines)
+lines = force("MODULE_FORCE_UNLOAD", "CONFIG_MODULE_FORCE_UNLOAD=y",     lines)
+lines = force("MODVERSIONS",         "# CONFIG_MODVERSIONS is not set",  lines)
+
+with open(p, "w") as f:
+    f.writelines(lines)
+print("Patched out/.config")
+PYEOF
+    echo "CHECKING CONFIG (out/.config) right after patch:"
+    grep -E "MODULE_FORCE_LOAD|MODULE_FORCE_UNLOAD|MODVERSIONS" out/.config || echo "NOT FOUND"
+    echo "======================================================="
+
+    make ${ARGS} KCONFIG_NOSILENTUPDATE=1 || exit 1
 }
 
 #build boot.img
-build_boot() {    
+build_boot() {
     rm -f ${RDIR}/AIK-Linux/split_img/boot.img-kernel ${RDIR}/AIK-Linux/boot.img
     cp "${RDIR}/out/arch/arm64/boot/Image" ${RDIR}/AIK-Linux/split_img/boot.img-kernel
     mkdir -p ${RDIR}/AIK-Linux/ramdisk/{debug_ramdisk,dev,metadata,mnt,proc,second_stage_resources,sys}
