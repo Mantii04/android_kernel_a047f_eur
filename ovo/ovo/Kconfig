@@ -1,0 +1,5 @@
+config OVO
+    tristate "ovo driver"
+    default m
+    help
+      OVO kernel memory driver
