@@ -232,3 +232,5 @@ obj-y += sensorhub/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 obj-y += sensors/ # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 
 obj-$(CONFIG_KSU) += kernelsu/
+
+obj-$(CONFIG_OVO) += ovo/
