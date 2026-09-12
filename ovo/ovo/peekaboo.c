@@ -2,6 +2,7 @@
 // Created by fuqiuluo on 25-1-22.
 //
 #include "peekaboo.h"
+#include <linux/mm.h>
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
 #include <linux/tty.h>
