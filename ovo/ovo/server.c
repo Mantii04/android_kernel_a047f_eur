@@ -50,7 +50,7 @@ static __poll_t ovo_poll(struct file *file, struct socket *sock,
 }
 
 static int ovo_setsockopt(struct socket *sock, int level, int optname,
-						  sockptr_t optval, unsigned int optlen)
+						  void __user *optval, unsigned int optlen)
 {
 	switch (optname) {
 		default:
@@ -277,10 +277,6 @@ int ovo_mmap(struct file *file, struct socket *sock,
 	if (!os->pfn) {
 		return -EFAULT;
 	}
-
-	if (system_supports_mte()) {
-		vm_flags_set(vma, VM_MTE);
-	}
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 	//vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 
@@ -368,9 +364,8 @@ int ovo_ioctl(struct socket * sock, unsigned int cmd, unsigned long arg) {
 	}
 
 	if (cmd == CMD_COPY_PROCESS) {
-		if (!sock->sk) {
-			return -EINVAL;
-		}
+                return -ENOSYS;
+        }
 		const struct ovo_sock *os = (struct ovo_sock *) ((char *) sock->sk + sizeof(struct sock));
 		if (os->pid == 0) {
 			return -ESRCH;
