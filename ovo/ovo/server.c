@@ -647,13 +647,22 @@ int init_server(void) {
 	int err;
 
 
+
 	{
 		struct list_head *plist = (struct list_head *) ovo_kallsyms_lookup_name("proto_list");
 		if (plist) {
-			pr_info("[ovo] DIAG proto_list=%px next=%px prev=%px
-",
+			pr_info("[ovo] DIAG proto_list=%px next=%px prev=%px\n",
 				plist, plist->next, plist->prev);
 		} else {
+			pr_info("[ovo] DIAG proto_list lookup FAILED\n");
+		}
+		pr_info("[ovo] DIAG &ovo_proto=%px &ovo_proto.node=%px sizeof(proto)=%zu node_offset=%zu\n",
+			&ovo_proto, &ovo_proto.node, sizeof(struct proto),
+			(size_t)((char*)&ovo_proto.node - (char*)&ovo_proto));
+	}
+	{
+		struct list_head *plist = (struct list_head *) ovo_kallsyms_lookup_name("proto_list");
+		if (plist)  else {
 			pr_info("[ovo] DIAG proto_list lookup FAILED
 ");
 		}
