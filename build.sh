@@ -17,30 +17,24 @@ fi
 export BUILD_CROSS_COMPILE="${RDIR}/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-"
 export BUILD_CC="${RDIR}/toolchain/clang/host/linux-x86/clang-r353983c/bin/clang"
 
-#init ksu next
 git submodule init && git submodule update
 
-#output dir
 if [ ! -d "${RDIR}/out" ]; then
     mkdir -p "${RDIR}/out"
 fi
 
-#build dir
 if [ ! -d "${RDIR}/build" ]; then
     mkdir -p "${RDIR}/build"
 else
     rm -rf "${RDIR}/build" && mkdir -p "${RDIR}/build"
 fi
 
-#kernelversion
 if [ -z "$BUILD_KERNEL_VERSION" ]; then
     export BUILD_KERNEL_VERSION="dev"
 fi
 
-#setting up localversion
 echo -e "CONFIG_LOCALVERSION_AUTO=n\nCONFIG_LOCALVERSION=\"-ravindu644-${BUILD_KERNEL_VERSION}\"\n" > "${RDIR}/arch/arm64/configs/version.config"
 
-#build options
 export ARGS="
 -w \
 -C $(pwd) \
@@ -51,22 +45,39 @@ CROSS_COMPILE=${BUILD_CROSS_COMPILE} \
 CC=${BUILD_CC} \
 "
 
-#build kernel image
 build_kernel(){
     make ${ARGS} exynos850-a04sxx_defconfig a04s.config version.config
 
-    # --- DIAGNOSTIC: dump the real MODULE-related config lines ---
+    # --- FORCE-PATCH out/.config directly (bypasses kconfig dependency rules) ---
+    python3 - << 'PYEOF'
+import os
+p = "out/.config"
+with open(p) as f:
+    lines = f.readlines()
+
+def force(key, val, lines):
+    kept = [l for l in lines if not (l.startswith(f"CONFIG_{key}=") or l.startswith(f"# CONFIG_{key} is not set"))]
+    kept.append(val + "\n")
+    return kept
+
+lines = force("MODULE_FORCE_LOAD",   "CONFIG_MODULE_FORCE_LOAD=y",       lines)
+lines = force("MODULE_FORCE_UNLOAD", "CONFIG_MODULE_FORCE_UNLOAD=y",     lines)
+lines = force("MODVERSIONS",         "# CONFIG_MODVERSIONS is not set",  lines)
+
+with open(p, "w") as f:
+    f.writelines(lines)
+print("=== Patched out/.config ===")
+PYEOF
+
     echo "======================================================="
-    echo "CHECKING CONFIG (out/.config):"
-    grep -E "MODULE_FORCE_LOAD|MODULE_FORCE_UNLOAD|MODVERSIONS|^CONFIG_MODULES=" out/.config || echo "MODULE options not found in out/.config"
+    echo "CHECKING CONFIG (out/.config) right after patch:"
+    grep -E "MODULE_FORCE_LOAD|MODULE_FORCE_UNLOAD|MODVERSIONS" out/.config || echo "NOT FOUND"
     echo "======================================================="
 
-    # menuconfig REMOVED (breaks on headless CI)
-
-    make ${ARGS} || exit 1
+    # Compile WITHOUT re-running syncconfig (use patched .config as-is)
+    make ${ARGS} KCONFIG_NOSILENTUPDATE=1 || exit 1
 }
 
-#build boot.img
 build_boot() {
     rm -f ${RDIR}/AIK-Linux/split_img/boot.img-kernel ${RDIR}/AIK-Linux/boot.img
     cp "${RDIR}/out/arch/arm64/boot/Image" ${RDIR}/AIK-Linux/split_img/boot.img-kernel
@@ -74,7 +85,6 @@ build_boot() {
     cd ${RDIR}/AIK-Linux && ./repackimg.sh --nosudo && mv image-new.img ${RDIR}/build/boot.img
 }
 
-#build odin flashable tar
 build_tar(){
     cd ${RDIR}/build
     tar -cvf "KernelSU-Next-SM-A047F-${BUILD_KERNEL_VERSION}.tar" boot.img && rm boot.img
