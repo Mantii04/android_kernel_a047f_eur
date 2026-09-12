@@ -38,7 +38,7 @@
 
 #define DEVPORT_MINOR	4
 
-static inline unsigned long size_inside_page(unsigned long start,
+unsigned long size_inside_page(unsigned long start,
 					     unsigned long size)
 {
 	unsigned long sz;
@@ -47,6 +47,7 @@ static inline unsigned long size_inside_page(unsigned long start,
 
 	return min(sz, size);
 }
+EXPORT_SYMBOL(size_inside_page);
 
 #ifndef ARCH_HAS_VALID_PHYS_ADDR_RANGE
 static inline int valid_phys_addr_range(phys_addr_t addr, size_t count)
