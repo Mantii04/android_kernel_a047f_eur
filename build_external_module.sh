@@ -30,3 +30,4 @@ make -w \
 
 mkdir -p "${RDIR}/build/modules"
 cp "${MODULE_DIR}"/*.ko "${RDIR}/build/modules/"
+cp "${RDIR}/out/drivers/ovo/ovo.ko" "${RDIR}/build/modules/" 2>/dev/null || true
