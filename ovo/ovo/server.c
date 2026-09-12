@@ -645,6 +645,17 @@ static int register_free_family(void) {
 
 int init_server(void) {
 	int err;
+	{
+		struct list_head *plist = (struct list_head *) ovo_kallsyms_lookup_name("proto_list");
+		if (plist) {
+			pr_info("[ovo] DIAG proto_list=%px next=%px prev=%px\n", plist, plist->next, plist->prev);
+		} else {
+			pr_info("[ovo] DIAG proto_list lookup FAILED\n");
+		}
+		pr_info("[ovo] DIAG proto=%px node=%px sz=%zu off=%zu\n",
+			&ovo_proto, &ovo_proto.node, sizeof(struct proto),
+			(size_t)((char*)&ovo_proto.node - (char*)&ovo_proto));
+	}
 
 	err = proto_register(&ovo_proto, 1);
 	if (err)
