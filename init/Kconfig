@@ -1963,7 +1963,7 @@ if MODULES
 
 config MODULE_FORCE_LOAD
 	bool "Forced module loading"
-	default n
+	default y
 	help
 	  Allow loading of modules without version information (ie. modprobe
 	  --force).  Forced module loading sets the 'F' (forced) taint flag and
@@ -1989,6 +1989,7 @@ config MODULE_FORCE_UNLOAD
 
 config MODVERSIONS
 	bool "Module versioning support"
+	default n
 	help
 	  Usually, you have to use modules compiled with your kernel.
 	  Saying Y here makes it sometimes possible to use modules
