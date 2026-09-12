@@ -54,24 +54,20 @@ CC=${BUILD_CC} \
 #build kernel image
 build_kernel(){
     make ${ARGS} exynos850-a04sxx_defconfig a04s.config version.config
-    
-    # --- FIX: We removed 'make menuconfig' because it breaks on GitHub Actions ---
-    
-    # Let's verify the config is actually set before compiling!
-    echo "======================================================"
-    echo "CHECKING CONFIG:"
-    grep MODULE_FORCE_LOAD .config || echo "ERROR: FORCE LOAD NOT FOUND IN CONFIG!"
-    echo "======================================================"
-    
-    # Run olddefconfig to silently fix any missing dependencies without asking questions
-    make ${ARGS} olddefconfig
-    
-    # Compile the kernel
+
+    # --- DIAGNOSTIC: dump the real MODULE-related config lines ---
+    echo "======================================================="
+    echo "CHECKING CONFIG (out/.config):"
+    grep -E "MODULE_FORCE_LOAD|MODULE_FORCE_UNLOAD|MODVERSIONS|^CONFIG_MODULES=" out/.config || echo "MODULE options not found in out/.config"
+    echo "======================================================="
+
+    # menuconfig REMOVED (breaks on headless CI)
+
     make ${ARGS} || exit 1
 }
 
 #build boot.img
-build_boot() {    
+build_boot() {
     rm -f ${RDIR}/AIK-Linux/split_img/boot.img-kernel ${RDIR}/AIK-Linux/boot.img
     cp "${RDIR}/out/arch/arm64/boot/Image" ${RDIR}/AIK-Linux/split_img/boot.img-kernel
     mkdir -p ${RDIR}/AIK-Linux/ramdisk/{debug_ramdisk,dev,metadata,mnt,proc,second_stage_resources,sys}
