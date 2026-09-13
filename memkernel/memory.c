@@ -226,3 +226,45 @@ ssize_t readwrite_process_memory(
     mmput(mm);
     return (count > 0 ? count : -1);
 }
+
+/*
+ * access_process_vm path — same function /proc/<pid>/mem uses internally.
+ * Faults pages in via handle_mm_fault, no /proc file opens from userspace.
+ * Exported by Samsung's 4.19 kernel to loadable modules.
+ */
+ssize_t readwrite_process_memory_apv(
+    pid_t pid,
+    uintptr_t addr,
+    void *buffer,
+    size_t size,
+    bool iswrite)
+{
+    struct task_struct *task;
+    struct pid *pid_struct;
+    unsigned int gup_flags;
+    int ret;
+
+    if (size <= 0 || buffer == NULL) {
+        return -1;
+    }
+
+    pid_struct = find_get_pid(pid);
+    if (!pid_struct) {
+        return -1;
+    }
+
+    task = get_pid_task(pid_struct, PIDTYPE_PID);
+    put_pid(pid_struct);
+    if (!task) {
+        return -1;
+    }
+
+    gup_flags = iswrite ? FOLL_WRITE : 0;
+    ret = access_process_vm(task, (unsigned long)addr, buffer, (int)size, gup_flags);
+    put_task_struct(task);
+
+    if (ret <= 0) {
+        return -1;
+    }
+    return (ssize_t)ret;
+}

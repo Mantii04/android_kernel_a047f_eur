@@ -14,7 +14,7 @@ struct ModuleBase
     pid_t pid;
     char *name;
     uintptr_t base;
-    int index; // ADDED: To select which match to return (1st, 2nd, etc.)
+    int index;
 };
 
 enum Operations
@@ -22,6 +22,8 @@ enum Operations
     OP_READ_MEM = 0x801,
     OP_WRITE_MEM = 0x802,
     OP_MODULE_BASE = 0x803,
+    OP_READ_MEM_APV = 0x804,
+    OP_WRITE_MEM_APV = 0x805,
 };
 
 #endif

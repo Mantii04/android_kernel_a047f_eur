@@ -54,6 +54,20 @@ static long dispatch_ioctl(struct file *const file, unsigned int const cmd, unsi
 		}
 		return readwrite_process_memory(cm.pid, cm.addr, cm.buffer, cm.size, true);
 	}
+	case OP_READ_MEM_APV:
+	{
+		if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) {
+			return -1;
+		}
+		return readwrite_process_memory_apv(cm.pid, cm.addr, cm.buffer, cm.size, false);
+	}
+	case OP_WRITE_MEM_APV:
+	{
+		if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) {
+			return -1;
+		}
+		return readwrite_process_memory_apv(cm.pid, cm.addr, cm.buffer, cm.size, true);
+	}
 	case OP_MODULE_BASE:
 	{
 		if (copy_from_user(&mb, (void __user *)arg, sizeof(mb)) != 0 || copy_from_user(name, (void __user *)mb.name, sizeof(name) - 1) != 0) {
