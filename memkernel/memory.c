@@ -289,3 +289,36 @@ ssize_t readwrite_process_memory_apv(
     kvfree(kbuf);
     return ret > 0 ? ret : -1;
 }
+
+/* Returns the page frame number for the page containing `addr` in `pid`.
+ * Returns -1 on failure. Uses the manual walk — no fault handler. */
+long get_process_pfn(pid_t pid, uintptr_t addr)
+{
+    struct task_struct *task;
+    struct mm_struct *mm;
+    struct pid *pid_struct;
+    phys_addr_t pa;
+
+    if (!pid || !addr) return -1;
+
+    pid_struct = find_get_pid(pid);
+    if (!pid_struct) return -1;
+
+    task = get_pid_task(pid_struct, PIDTYPE_PID);
+    put_pid(pid_struct);
+    if (!task) return -1;
+
+    mm = get_task_mm(task);
+    put_task_struct(task);
+    if (!mm) return -1;
+
+    MM_READ_LOCK(mm);
+    pa = translate_linear_address(mm, addr & PAGE_MASK);
+    MM_READ_UNLOCK(mm);
+    mmput(mm);
+
+    if (!pa) return -1;
+    if (!pfn_valid(__phys_to_pfn(pa))) return -1;
+
+    return (long)__phys_to_pfn(pa);
+}

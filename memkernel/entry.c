@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
+#include <linux/mm.h>
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
 #include "comm.h"
@@ -68,6 +69,26 @@ static long dispatch_ioctl(struct file *const file, unsigned int const cmd, unsi
 		}
 		return readwrite_process_memory_apv(cm.pid, cm.addr, cm.buffer, cm.size, true);
 	}
+	case OP_GET_PFN:
+	{
+		struct GetPfnReq req;
+		long pfn;
+		if (copy_from_user(&req, (void __user *)arg, sizeof(req)) != 0) {
+			return -1;
+		}
+		pfn = get_process_pfn(req.pid, req.addr);
+		if (pfn < 0) {
+			req.status = -1;
+			req.pfn = 0;
+		} else {
+			req.status = 0;
+			req.pfn = (uintptr_t)pfn;
+		}
+		if (copy_to_user((void __user *)arg, &req, sizeof(req)) != 0) {
+			return -1;
+		}
+		break;
+	}
 	case OP_MODULE_BASE:
 	{
 		if (copy_from_user(&mb, (void __user *)arg, sizeof(mb)) != 0 || copy_from_user(name, (void __user *)mb.name, sizeof(name) - 1) != 0) {
@@ -85,11 +106,30 @@ static long dispatch_ioctl(struct file *const file, unsigned int const cmd, unsi
 	return 0;
 }
 
+
+static int dispatch_mmap(struct file *file, struct vm_area_struct *vma)
+{
+    unsigned long pfn = vma->vm_pgoff;
+    unsigned long size = vma->vm_end - vma->vm_start;
+
+    if (size != PAGE_SIZE) {
+        return -EINVAL;
+    }
+    if (!pfn_valid(pfn)) {
+        return -EINVAL;
+    }
+    if (remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot)) {
+        return -EAGAIN;
+    }
+    return 0;
+}
+
 static struct file_operations dispatch_functions = {
 	.owner = THIS_MODULE,
 	.open = dispatch_open,
 	.release = dispatch_close,
 	.unlocked_ioctl = dispatch_ioctl,
+	.mmap = dispatch_mmap,
 };
 
 static struct miscdevice misc = {
