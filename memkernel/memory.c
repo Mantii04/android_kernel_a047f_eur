@@ -242,9 +242,10 @@ ssize_t readwrite_process_memory_apv(
     struct task_struct *task;
     struct pid *pid_struct;
     unsigned int gup_flags;
+    void *kbuf;
     int ret;
 
-    if (size <= 0 || buffer == NULL) {
+    if (size <= 0 || buffer == NULL || size > 0x100000) {
         return -1;
     }
 
@@ -259,12 +260,32 @@ ssize_t readwrite_process_memory_apv(
         return -1;
     }
 
-    gup_flags = iswrite ? FOLL_WRITE : 0;
-    ret = access_process_vm(task, (unsigned long)addr, buffer, (int)size, gup_flags);
-    put_task_struct(task);
-
-    if (ret <= 0) {
+    kbuf = kvmalloc(size, GFP_KERNEL);
+    if (!kbuf) {
+        put_task_struct(task);
         return -1;
     }
-    return (ssize_t)ret;
+
+    gup_flags = FOLL_FORCE;
+    if (iswrite) {
+        if (copy_from_user(kbuf, buffer, size) != 0) {
+            kvfree(kbuf);
+            put_task_struct(task);
+            return -1;
+        }
+        gup_flags |= FOLL_WRITE;
+    }
+
+    ret = access_process_vm(task, (unsigned long)addr, kbuf, (int)size, gup_flags);
+    put_task_struct(task);
+
+    if (ret > 0 && !iswrite) {
+        if (copy_to_user(buffer, kbuf, ret) != 0) {
+            kvfree(kbuf);
+            return -1;
+        }
+    }
+
+    kvfree(kbuf);
+    return ret > 0 ? ret : -1;
 }
