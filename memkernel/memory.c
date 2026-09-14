@@ -1,7 +1,9 @@
 // language: C, file: memkernel/memory.c, target: Linux ARM64 kernel module
-// *read/write physical address now go through the kernel linear map (__va)
-//  for RAM pages in lowmem, so hardware cache coherence propagates the
-//  write to the target process's cores. ioremap_cache kept as fallback.*
+// *read/write physical address now go through memremap(MEMREMAP_WB) — the
+//  correct API for mapping System RAM. Returns the kernel's direct-map
+//  pointer for lowmem pages, which shares Normal-WB attributes with the
+//  target process's own user mapping, so ARMv8 hardware cache coherency
+//  propagates writes to the target's cores.*
 #include "memory.h"
 #include <linux/fs.h>
 #include <linux/io.h>
@@ -132,14 +134,16 @@ static inline int memk_valid_phys_addr_range(phys_addr_t addr, size_t size)
 
 /* Read physical memory into a userspace buffer.
  *
- * Path selection:
- *   - PA inside lowmem -> __va(pa) gives the kernel's canonical Normal-WB
- *     linear mapping, which shares attributes with the target process's
- *     own user mapping. ARMv8 hardware cache coherence is defined for
- *     this case and the target core sees up-to-date data.
- *   - PA outside lowmem (rare on ARM64) -> fall back to ioremap_cache,
- *     accepting the attribute-mismatch hazard since there's no other
- *     way to reach the page.
+ * memremap(..., MEMREMAP_WB) is the kernel's correct API for System RAM.
+ * For lowmem pages (which game heaps always are) it returns a pointer into
+ * the kernel's existing linear map — the same canonical Normal-WB mapping
+ * that shares attributes with the target process's user mapping. ARMv8
+ * hardware cache coherency is defined for this case.
+ *
+ * The previous ioremap_cache() created a second, distinct mapping whose
+ * attributes were not guaranteed to match the target's. When they didn't,
+ * coherency broke silently: reads via the driver looked correct, but the
+ * target core kept returning its stale L1 line.
  */
 static size_t read_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
@@ -152,34 +156,25 @@ static size_t read_physical_address(phys_addr_t pa, void *buffer, size_t size)
         return 0;
     }
 
-    if (pa + size <= __pa(high_memory)) {
-        mapped = __va(pa);
-        if (copy_to_user(buffer, mapped, size)) {
-            return 0;
-        }
-        return size;
-    }
-
-    mapped = ioremap_cache(pa, size);
+    mapped = memremap(pa, size, MEMREMAP_WB);
     if (!mapped) {
         return 0;
     }
     if (copy_to_user(buffer, mapped, size)) {
-        iounmap(mapped);
+        memunmap(mapped);
         return 0;
     }
-    iounmap(mapped);
+    memunmap(mapped);
     return size;
 }
 
 /* Write a userspace buffer to physical memory.
  *
- * Symmetric to read_physical_address. Writing through __va(pa) lets the
- * ARMv8 coherency protocol push the dirty line to any other core that
- * has the page mapped in its cache — this is what the previous
- * ioremap_cache implementation was missing, and it's why silent-aim
- * writes appeared to land (read-back through the driver's own mapping
- * confirmed them) but never reached the game's cores.
+ * Symmetric to read_physical_address. Writing through the direct-map
+ * pointer returned by memremap(MEMREMAP_WB) lets ARMv8 coherency push the
+ * dirty line to every core with the page mapped. This is the fix for the
+ * silent-aim write pattern: previous ioremap_cache writes landed in DRAM
+ * but never reached the game's cores.
  */
 static size_t write_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
@@ -192,23 +187,15 @@ static size_t write_physical_address(phys_addr_t pa, void *buffer, size_t size)
         return 0;
     }
 
-    if (pa + size <= __pa(high_memory)) {
-        mapped = __va(pa);
-        if (copy_from_user(mapped, buffer, size)) {
-            return 0;
-        }
-        return size;
-    }
-
-    mapped = ioremap_cache(pa, size);
+    mapped = memremap(pa, size, MEMREMAP_WB);
     if (!mapped) {
         return 0;
     }
     if (copy_from_user(mapped, buffer, size)) {
-        iounmap(mapped);
+        memunmap(mapped);
         return 0;
     }
-    iounmap(mapped);
+    memunmap(mapped);
     return size;
 }
 
