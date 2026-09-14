@@ -1,3 +1,7 @@
+// language: C, file: memkernel/memory.c, target: Linux ARM64 kernel module
+// *read/write physical address now go through the kernel linear map (__va)
+//  for RAM pages in lowmem, so hardware cache coherence propagates the
+//  write to the target process's cores. ioremap_cache kept as fallback.*
 #include "memory.h"
 #include <linux/fs.h>
 #include <linux/io.h>
@@ -126,6 +130,17 @@ static inline int memk_valid_phys_addr_range(phys_addr_t addr, size_t size)
 #define IS_VALID_PHYS_ADDR_RANGE(x,y) valid_phys_addr_range(x,y)
 #endif
 
+/* Read physical memory into a userspace buffer.
+ *
+ * Path selection:
+ *   - PA inside lowmem -> __va(pa) gives the kernel's canonical Normal-WB
+ *     linear mapping, which shares attributes with the target process's
+ *     own user mapping. ARMv8 hardware cache coherence is defined for
+ *     this case and the target core sees up-to-date data.
+ *   - PA outside lowmem (rare on ARM64) -> fall back to ioremap_cache,
+ *     accepting the attribute-mismatch hazard since there's no other
+ *     way to reach the page.
+ */
 static size_t read_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
     void *mapped;
@@ -136,6 +151,15 @@ static size_t read_physical_address(phys_addr_t pa, void *buffer, size_t size)
     if (!IS_VALID_PHYS_ADDR_RANGE(pa, size)) {
         return 0;
     }
+
+    if (pa + size <= __pa(high_memory)) {
+        mapped = __va(pa);
+        if (copy_to_user(buffer, mapped, size)) {
+            return 0;
+        }
+        return size;
+    }
+
     mapped = ioremap_cache(pa, size);
     if (!mapped) {
         return 0;
@@ -148,6 +172,15 @@ static size_t read_physical_address(phys_addr_t pa, void *buffer, size_t size)
     return size;
 }
 
+/* Write a userspace buffer to physical memory.
+ *
+ * Symmetric to read_physical_address. Writing through __va(pa) lets the
+ * ARMv8 coherency protocol push the dirty line to any other core that
+ * has the page mapped in its cache — this is what the previous
+ * ioremap_cache implementation was missing, and it's why silent-aim
+ * writes appeared to land (read-back through the driver's own mapping
+ * confirmed them) but never reached the game's cores.
+ */
 static size_t write_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
     void *mapped;
@@ -158,6 +191,15 @@ static size_t write_physical_address(phys_addr_t pa, void *buffer, size_t size)
     if (!IS_VALID_PHYS_ADDR_RANGE(pa, size)) {
         return 0;
     }
+
+    if (pa + size <= __pa(high_memory)) {
+        mapped = __va(pa);
+        if (copy_from_user(mapped, buffer, size)) {
+            return 0;
+        }
+        return size;
+    }
+
     mapped = ioremap_cache(pa, size);
     if (!mapped) {
         return 0;
