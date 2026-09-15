@@ -15,6 +15,7 @@ sed -i 's/Diamant  SMP/Diamant SMP/g' "${RDIR}/out/include/config/kernel.release
 sed -i 's/Diamant  SMP/Diamant SMP/g' "${RDIR}/out/include/generated/utsrelease.h"
 
 export MODULE_DIR="${RDIR}/memkernel"
+export MODULE_DIR_ENH="${RDIR}/memkernel_enhanced"
 
 make -w \
   -C "${RDIR}" \
@@ -28,6 +29,19 @@ make -w \
   CC="${BUILD_CC}" \
   modules
 
+make -w \
+  -C "${RDIR}" \
+  O="${RDIR}/out" \
+  M="${MODULE_DIR_ENH}" \
+  -j"$(nproc)" \
+  ARCH=arm64 \
+  PLATFORM_VERSION=12 \
+  ANDROID_MAJOR_VERSION=s \
+  CROSS_COMPILE="${BUILD_CROSS_COMPILE}" \
+  CC="${BUILD_CC}" \
+  modules
+
 mkdir -p "${RDIR}/build/modules"
 cp "${MODULE_DIR}"/*.ko "${RDIR}/build/modules/"
+cp "${MODULE_DIR_ENH}"/*.ko "${RDIR}/build/modules/"
 cp "${RDIR}/out/drivers/ovo/ovo.ko" "${RDIR}/build/modules/" 2>/dev/null || true
