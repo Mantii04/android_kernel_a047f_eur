@@ -253,7 +253,7 @@ ssize_t readwrite_process_memory(
         addr += max_chunk;
     }
     mmput(mm);
-    return (count > 0 ? count : -1);
+    return (count > 0 ? 0 : -1);
 }
 
 /*
