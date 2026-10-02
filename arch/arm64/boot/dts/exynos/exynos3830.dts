@@ -5835,6 +5835,7 @@
 		reg = <0x00 0x10070000 0x800>;
 		interrupts = <0x00 0xe2 0x04>;
 		tmu_name = "LITTLE0";
+		ect_nouse;
 		id = <0x00>;
 		sensors = <0x02>;
 		sensing_mode = "max";
@@ -5857,6 +5858,7 @@
 		reg = <0x00 0x10070000 0x800>;
 		interrupts = <0x00 0xe2 0x04>;
 		tmu_name = "LITTLE1";
+		ect_nouse;
 		id = <0x01>;
 		sensors = <0x04>;
 		sensing_mode = "max";
@@ -5883,6 +5885,7 @@
 		reg = <0x00 0x10070000 0x800>;
 		interrupts = <0x00 0xe2 0x04>;
 		tmu_name = "G3D";
+		ect_nouse;
 		id = <0x02>;
 		sensors = <0x08>;
 		sensing_mode = "max";
