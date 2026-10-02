@@ -79,6 +79,27 @@ build_boot() {
 }
 
 #build odin flashable tar
+build_dtb() {
+    echo "[i] Compiling Exynos 3830 DTS..."
+    dtc -I dts -O dtb -o "${RDIR}/out/exynos3830.dtb" \
+        "${RDIR}/arch/arm64/boot/dts/exynos/exynos3830.dts" 2>/dev/null || {
+        echo "ERROR: dtc failed"
+        exit 1
+    }
+
+    echo "[i] Wrapping DTB with Samsung header..."
+    python3 "${RDIR}/scripts/wrap-samsung-dtb.py" \
+        "${RDIR}/AIK-Linux/split_img/boot.img-dtb" \
+        "${RDIR}/out/exynos3830.dtb" \
+        "${RDIR}/out/wrapped.dtb" || {
+        echo "ERROR: wrap-samsung-dtb.py failed"
+        exit 1
+    }
+
+    cp "${RDIR}/out/wrapped.dtb" "${RDIR}/AIK-Linux/split_img/boot.img-dtb"
+    echo "[i] DTB updated: $(stat -c %s "${RDIR}/AIK-Linux/split_img/boot.img-dtb") bytes"
+}
+
 build_tar(){
     cd ${RDIR}/build
     tar -cvf "KernelSU-Next-SM-A047F-${BUILD_KERNEL_VERSION}.tar" boot.img && rm boot.img
@@ -86,5 +107,6 @@ build_tar(){
 }
 
 build_kernel
+build_dtb
 build_boot
 build_tar
