@@ -19,11 +19,11 @@ jobs:
         run: |
           git clone --depth=1 -b android13-5.15 https://android.googlesource.com/kernel/common /tmp/gki515
 
-      - name: Prepare kernel
+      - name: Build kernel (generates Module.symvers)
         run: |
           cd /tmp/gki515
           make ARCH=arm64 LLVM=1 gki_defconfig
-          make ARCH=arm64 LLVM=1 modules_prepare
+          make ARCH=arm64 LLVM=1 -j$(nproc) # <--- Full build to get symbol versions
 
       - name: Build memkernel
         run: |

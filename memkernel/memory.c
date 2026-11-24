@@ -156,15 +156,15 @@ static size_t read_physical_address(phys_addr_t pa, void *buffer, size_t size)
         return 0;
     }
 
-    mapped = memremap(pa, size, MEMREMAP_WB);
+    mapped = ioremap_cache(pa, size);
     if (!mapped) {
         return 0;
     }
     if (copy_to_user(buffer, mapped, size)) {
-        memunmap(mapped);
+        iounmap(mapped);
         return 0;
     }
-    memunmap(mapped);
+    iounmap(mapped);
     return size;
 }
 
@@ -187,15 +187,15 @@ static size_t write_physical_address(phys_addr_t pa, void *buffer, size_t size)
         return 0;
     }
 
-    mapped = memremap(pa, size, MEMREMAP_WB);
+    mapped = ioremap_cache(pa, size);
     if (!mapped) {
         return 0;
     }
     if (copy_from_user(mapped, buffer, size)) {
-        memunmap(mapped);
+        iounmap(mapped);
         return 0;
     }
-    memunmap(mapped);
+    iounmap(mapped);
     return size;
 }
 
