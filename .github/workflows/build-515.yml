@@ -1,0 +1,37 @@
+name: Build memkernel for GKI 5.15
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu build-essential bison flex libssl-dev bc
+
+      - name: Clone GKI 5.15 kernel
+        run: |
+          git clone --depth=1 -b android13-5.15 https://android.googlesource.com/kernel/common /tmp/gki515
+
+      - name: Prepare kernel
+        run: |
+          cd /tmp/gki515
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
+
+      - name: Build memkernel
+        run: |
+          cd $GITHUB_WORKSPACE/memkernel
+          make KDIR=/tmp/gki515 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: memkernel-gki515
+          path: memkernel/memkernel.ko
