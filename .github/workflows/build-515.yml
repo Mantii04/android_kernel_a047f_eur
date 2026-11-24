@@ -13,7 +13,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu build-essential bison flex libssl-dev bc
+          sudo apt install -y clang lld llvm build-essential bison flex libssl-dev bc libelf-dev dwarves
 
       - name: Clone GKI 5.15 kernel
         run: |
@@ -22,13 +22,13 @@ jobs:
       - name: Prepare kernel
         run: |
           cd /tmp/gki515
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
+          make ARCH=arm64 LLVM=1 gki_defconfig
+          make ARCH=arm64 LLVM=1 modules_prepare
 
       - name: Build memkernel
         run: |
           cd $GITHUB_WORKSPACE/memkernel
-          make KDIR=/tmp/gki515 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+          make KDIR=/tmp/gki515 ARCH=arm64 LLVM=1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
