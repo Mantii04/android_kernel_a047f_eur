@@ -20,7 +20,7 @@
 #define MM_READ_UNLOCK(mm) up_read(&(mm)->mmap_sem);
 #endif
 
-uintptr_t get_module_base(pid_t pid, char *name, int index)
+uintptr_t get_module_base(pid_t pid, char *name)
 {
     struct pid *pid_struct;
     struct task_struct *task;
@@ -30,7 +30,6 @@ uintptr_t get_module_base(pid_t pid, char *name, int index)
     struct vma_iterator vmi;
 #endif
     uintptr_t module_base = 0;
-    int current_index = 0;
 
     pid_struct = find_get_pid(pid);
     if (!pid_struct)
@@ -69,11 +68,8 @@ uintptr_t get_module_base(pid_t pid, char *name, int index)
             !strstr(path_nm, name))
             continue;
 
-        if (current_index == index) {
-            module_base = vma->vm_start;
-            break;
-        }
-        current_index++;
+        module_base = vma->vm_start;
+        break;
     }
 
     MM_READ_UNLOCK(mm);

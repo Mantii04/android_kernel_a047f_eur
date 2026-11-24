@@ -14,15 +14,14 @@ struct ModuleBase
     pid_t pid;
     char *name;
     uintptr_t base;
-    int index;
 };
 
 struct GetPfnReq
 {
     pid_t pid;
     uintptr_t addr;
-    uintptr_t pfn;      // output
-    int32_t status;     // 0 = ok, <0 = error
+    uintptr_t pfn;
+    int32_t status;
 };
 
 enum Operations
