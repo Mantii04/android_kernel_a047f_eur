@@ -33,19 +33,18 @@ uintptr_t get_module_base(pid_t pid, char *name, int index)
     int current_index = 0;
 
     pid_struct = find_get_pid(pid);
-    if (!pid_struct) {
-        return false;
-    }
+    if (!pid_struct)
+        return 0;
+
     task = get_pid_task(pid_struct, PIDTYPE_PID);
     put_pid(pid_struct);
-    if (!task) {
-        return false;
-    }
+    if (!task)
+        return 0;
+
     mm = get_task_mm(task);
     put_task_struct(task);
-    if (!mm) {
-        return false;
-    }
+    if (!mm)
+        return 0;
 
     MM_READ_LOCK(mm);
 
@@ -57,18 +56,24 @@ uintptr_t get_module_base(pid_t pid, char *name, int index)
 #endif
     {
         char buf[ARC_PATH_MAX];
-        char *path_nm = "";
+        char *path_nm;
 
-        if (vma->vm_file) {
-            path_nm = file_path(vma->vm_file, buf, ARC_PATH_MAX - 1);
-            if (!strcmp(kbasename(path_nm), name)) {
-                current_index++;
-                if (current_index == index) {
-                    module_base = vma->vm_start;
-                    break;
-                }
-            }
+        if (!vma->vm_file)
+            continue;
+
+        path_nm = file_path(vma->vm_file, buf, ARC_PATH_MAX - 1);
+        if (!path_nm)
+            continue;
+
+        if (strcmp(kbasename(path_nm), name) != 0 &&
+            !strstr(path_nm, name))
+            continue;
+
+        if (current_index == index) {
+            module_base = vma->vm_start;
+            break;
         }
+        current_index++;
     }
 
     MM_READ_UNLOCK(mm);
