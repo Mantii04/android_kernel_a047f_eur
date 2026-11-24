@@ -15,6 +15,13 @@ jobs:
           sudo apt update
           sudo apt install -y clang lld llvm build-essential bison flex libssl-dev bc libelf-dev dwarves
 
+      - name: Create Swap Space (Fixes Out Of Memory)
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
       - name: Clone GKI 5.15 kernel
         run: |
           git clone --depth=1 -b android13-5.15 https://android.googlesource.com/kernel/common /tmp/gki515
@@ -23,7 +30,8 @@ jobs:
         run: |
           cd /tmp/gki515
           make ARCH=arm64 LLVM=1 gki_defconfig
-          make ARCH=arm64 LLVM=1 -j$(nproc) # <--- Full build to get symbol versions
+          # Added -j2 to limit memory usage and prevent OOM
+          make ARCH=arm64 LLVM=1 -j2
 
       - name: Build memkernel
         run: |
